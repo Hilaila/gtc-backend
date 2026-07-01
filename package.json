@@ -1,0 +1,6 @@
+{
+  "name": "gtc-backend",
+  "version": "1.0.0",
+  "description": "GeoTerraChain QFS — Backend Pi Network",
+  "type": "module"
+}
