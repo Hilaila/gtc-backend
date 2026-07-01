@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "gtc-backend",
+  "functions": {
+    "api/*.js": {
+      "memory": 128,
+      "maxDuration": 10
+    }
+  }
+}
