@@ -1,66 +1,57 @@
+// GeoTerraChain QFS — Registre public des tokenisations (v3)
+import { setCors, kvCommand, kvPipeline, rateLimit, logAudit, clientIp, getBearerToken, verifyPiUser } from '../lib/security.js';
+
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  setCors(req, res);
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const REST_URL = process.env.UPSTASH_REDIS_REST_URL;
-  const REST_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
   const KEY = 'geoterrachain:tokenizations';
-
-  if (!REST_URL || !REST_TOKEN) {
-    return res.status(500).json({
-      error: 'Registre non configuré — variables UPSTASH_REDIS_REST_URL et UPSTASH_REDIS_REST_TOKEN manquantes sur Vercel'
-    });
+  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+    return res.status(500).json({ error: 'Registre non configuré — variables Upstash manquantes sur Vercel' });
   }
 
-  if (req.method === 'POST') {
-    try {
+  try {
+    if (req.method === 'POST') {
+      const ip = clientIp(req);
+      const rl = await rateLimit(`token_create:${ip}`, 20, 3600);
+      if (!rl.allowed) return res.status(429).json({ error: 'Trop de tokenisations soumises récemment depuis cette connexion.' });
+
       const record = req.body;
-      if (!record || !record.id) {
-        return res.status(400).json({ error: 'Données de tokenisation invalides' });
-      }
-      const value = JSON.stringify(record);
-      const r = await fetch(`${REST_URL}/pipeline`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${REST_TOKEN}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify([
-          ['LPUSH', KEY, value],
-          ['LTRIM', KEY, '0', '499']
-        ])
-      });
-      const data = await r.json();
-      return res.status(200).json({ success: true, data });
-    } catch (e) {
-      return res.status(500).json({ error: e.message });
-    }
-  }
+      if (!record || !record.id) return res.status(400).json({ error: 'Données de tokenisation invalides' });
 
-  if (req.method === 'GET') {
-    try {
-      const r = await fetch(`${REST_URL}/lrange/${encodeURIComponent(KEY)}/0/-1`, {
-        headers: { Authorization: `Bearer ${REST_TOKEN}` }
+      // Si un dossier foncier est référencé, on vérifie qu'il existe et son niveau
+      // de vérification, sans bloquer les tests libres non liés à un dossier.
+      if (record.dossierId) {
+        const d = await kvCommand(['GET', `geoterrachain:dossier:${record.dossierId}`]);
+        if (d.result) {
+          try {
+            const dossier = JSON.parse(d.result);
+            record.dossierStatut = dossier.statut;
+          } catch {}
+        }
+      }
+
+      const value = JSON.stringify(record);
+      await kvPipeline([['LPUSH', KEY, value], ['LTRIM', KEY, '0', '499']]);
+      await logAudit({ actor: record.proprio || 'inconnu', action: 'tokenization.create', resource: record.id, result: record.dossierId ? `dossier:${record.dossierId}` : 'sans_dossier' });
+      return res.status(200).json({ success: true });
+    }
+
+    if (req.method === 'GET') {
+      const r = await fetch(`${process.env.UPSTASH_REDIS_REST_URL}/lrange/${encodeURIComponent(KEY)}/0/-1`, {
+        headers: { Authorization: `Bearer ${process.env.UPSTASH_REDIS_REST_TOKEN}` }
       });
       const data = await r.json();
       const raw = data.result || [];
-      const tokenizations = raw
-        .map(item => { try { return JSON.parse(item); } catch { return null; } })
-        .filter(Boolean);
+      const tokenizations = raw.map(item => { try { return JSON.parse(item); } catch { return null; } }).filter(Boolean);
       const count = tokenizations.length;
-      const totalGTCp = parseFloat(
-        tokenizations.reduce((s, t) => s + (parseFloat(t.prixGTCp) || 0), 0).toFixed(6)
-      );
-      const totalBurn = parseFloat(
-        tokenizations.reduce((s, t) => s + (parseFloat(t.burn) || 0), 0).toFixed(6)
-      );
+      const totalGTCp = parseFloat(tokenizations.reduce((s, t) => s + (parseFloat(t.prixGTCp) || 0), 0).toFixed(6));
+      const totalBurn = parseFloat(tokenizations.reduce((s, t) => s + (parseFloat(t.burn) || 0), 0).toFixed(6));
       return res.status(200).json({ success: true, count, totalGTCp, totalBurn, tokenizations });
-    } catch (e) {
-      return res.status(500).json({ error: e.message });
     }
-  }
 
-  return res.status(405).json({ error: 'Méthode non autorisée' });
+    return res.status(405).json({ error: 'Méthode non autorisée' });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
 }
