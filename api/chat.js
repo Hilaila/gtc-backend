@@ -49,7 +49,7 @@ export default async function handler(req, res) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         max_tokens: 600,
         system: `Tu es l'assistant expert de GeoTerraChain QFS, plateforme africaine de tokenisation RWA sur Pi Network et Stellar. Tu connais : GTCπ (supply 3 141 592, burn 0.5%), KYC Pioneer Pi Network, le Référentiel foncier (11 modes d'acquisition, niveaux N0-N7), le module Convocations & Présences, zone UEMOA, Côte d'Ivoire. Réponds en français, de façon concise et pratique.`,
         messages: [{ role: 'user', content: message }]
