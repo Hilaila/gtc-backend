@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "name": "gtc-backend",
+  "functions": {
+    "api/*.js": {
+      "maxDuration": 30
+    }
+  }
+}
